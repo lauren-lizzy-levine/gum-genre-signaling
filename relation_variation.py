@@ -300,5 +300,5 @@ def ranking_consistency(iterations=10, doc_sample_size=5, coarse=False):
 if __name__ == "__main__":
 	coarse_level_variation()
 	fine_grained_level_variation()
-	ranking_consistency(iterations=100, doc_sample_size=5, coarse=False)
-	ranking_consistency(iterations=100, doc_sample_size=5, coarse=True)
+	ranking_consistency(iterations=50, doc_sample_size=5, coarse=False)
+	ranking_consistency(iterations=50, doc_sample_size=5, coarse=True)
