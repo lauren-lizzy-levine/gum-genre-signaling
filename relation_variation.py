@@ -1,9 +1,11 @@
 from scipy.spatial import distance
 from scipy.cluster.hierarchy import dendrogram, linkage
 from scipy.spatial.distance import squareform
-import csv
+import scipy.stats as stats
 import numpy as np
 import matplotlib.pyplot as plt
+import random
+import csv
 
 
 def get_colors():
@@ -15,14 +17,41 @@ def get_colors():
 	return colors
 
 
-def frequency_counts_rel_genre(infile, coarse=False):
-	lines = []
-	coarse_relations_set = set()
+def get_data(infile, n=None):
+	data = []
 	with open(infile, "r") as file:
 		reader = csv.reader(file, delimiter='\t')
 		next(reader, None)  # skip the headers
 		for line in reader:
-			lines.append(line)
+			data.append(line)
+	if n is not None:
+		genre_doc_dict = {}
+		doc_list = []
+		new_data = []
+		# make dictionary of genres and their doc
+		for line in data:
+			genre = line[1]
+			doc_name = line[0]
+			if genre in genre_doc_dict:
+				genre_doc_dict[genre].add(doc_name)
+			else:
+				genre_doc_dict[genre] = set([doc_name])
+		# for each genre, randomly select n docs and add to list
+		for genre in genre_doc_dict:
+			doc_names = random.sample(list(genre_doc_dict[genre]), n)
+			doc_list += doc_names
+		# for line in data, add to new data if it is from a doc on the doc list
+		for line in data:
+			doc = line[0]
+			if doc in doc_list:
+				new_data.append(line)
+		data = new_data
+
+	return data
+
+
+def frequency_counts_rel_genre(lines, coarse=False):
+	coarse_relations_set = set()
 	freq_counts = {}
 	for line in lines:
 		genre = line[1]
@@ -42,13 +71,14 @@ def frequency_counts_rel_genre(infile, coarse=False):
 		else:
 			freq_counts[relation] = {genre: {signal_type: 1}}
 
-	# fill in zeros
+	# fill in zeros with epsilon = 1e-10
+	epsilon = 1e-5
 	singal_types = ['dm', 'grf', 'lex', 'mrf', 'num', 'ref', 'sem', 'syn']
 	for relation in freq_counts:
 		for genre in freq_counts[relation]:
 			for sig_type in singal_types:
 				if sig_type not in freq_counts[relation][genre]:
-					freq_counts[relation][genre][sig_type] = 0
+					freq_counts[relation][genre][sig_type] = epsilon
 
 	# eliminate topic-solutionhood because it only occurs 8 times
 	if "topic-solutionhood" in freq_counts:
@@ -68,10 +98,8 @@ def frequency_counts_rel_genre(infile, coarse=False):
 		collaposed_avg = {}
 		for relation in list(coarse_relations_set):
 			collaposed_avg[relation] = {}
-			n = 0
 			for rel in freq_counts_normalized:
 				if relation in rel:
-					n += 1
 					for genre in freq_counts_normalized[rel]:
 						if genre in collaposed_avg[relation]:
 							for sig_type in freq_counts_normalized[rel][genre]:
@@ -80,6 +108,7 @@ def frequency_counts_rel_genre(infile, coarse=False):
 							collaposed_avg[relation][genre] = freq_counts_normalized[rel][genre]
 			# divide by n
 			for genre in collaposed_avg[relation]:
+				n = round(sum(collaposed_avg[relation][genre].values()))
 				for sig_type in collaposed_avg[relation][genre]:
 					collaposed_avg[relation][genre][sig_type] = collaposed_avg[relation][genre][sig_type] / n
 		freq_counts = collaposed_avg
@@ -119,8 +148,8 @@ def rank_variation(pair_distances):
 			jsd_sum += pair_distances[relation][pair]
 		relation_avg_jsd.append((relation, jsd_sum / pairs_count))
 	relation_jsd_sorted_descending = sorted(relation_avg_jsd, key=lambda x: x[1], reverse=True)
-	for rel_jsd in relation_jsd_sorted_descending:
-		print(rel_jsd)
+	#for rel_jsd in relation_jsd_sorted_descending:
+	#	print(rel_jsd)
 
 	return relation_jsd_sorted_descending
 
@@ -190,7 +219,8 @@ def make_dendrogram(relation, pair_distances, outfile):
 
 def coarse_level_variation():
 	datafile = "GUM_signals.tsv"
-	freq_counts = frequency_counts_rel_genre(datafile, coarse=True)
+	data = get_data(datafile)
+	freq_counts = frequency_counts_rel_genre(data, coarse=True)
 	pair_distances = pairwise_jsd(freq_counts)
 	ranking = rank_variation(pair_distances)
 	visualize_ranking(ranking, "Inter-Genre Variation of Coarse Relations", "coarse_rel_inter_genre_var.png")
@@ -203,7 +233,8 @@ def coarse_level_variation():
 
 def fine_grained_level_variation():
 	datafile = "GUM_signals.tsv"
-	freq_counts = frequency_counts_rel_genre(datafile, coarse=False)
+	data = get_data(datafile)
+	freq_counts = frequency_counts_rel_genre(data, coarse=False)
 	pair_distances = pairwise_jsd(freq_counts)
 	ranking = rank_variation(pair_distances)
 	visualize_ranking(ranking, "Inter-Genre Variation of Fine-Grained Relations", "fine_grained_rel_inter_genre_var.png")
@@ -211,6 +242,63 @@ def fine_grained_level_variation():
 	return
 
 
+def ranking_consistency(iterations=10, doc_sample_size=5, coarse=False):
+	datafile = "GUM_signals.tsv"
+	rankings = []
+	pair_count = 0
+	kendalltau_sum = 0
+	spearmanr_sum = 0
+	pearsonr_sum = 0
+	for i in range(iterations):
+		data = get_data(datafile, n=doc_sample_size)
+		freq_counts = frequency_counts_rel_genre(data, coarse=coarse)
+		pair_distances = pairwise_jsd(freq_counts)
+		ranking1 = rank_variation(pair_distances)
+		# make rank
+		for ranking2 in rankings:
+			pair_count += 1
+			relation_info = {}
+			rank = 0
+			for line in ranking1:
+				rank += 1
+				relation_info[line[0]] = {"rank1": rank, "score1": line[1]}
+			rank = 0
+			for line in ranking2:
+				rank += 1
+				relation_info[line[0]]["rank2"] = rank
+				relation_info[line[0]]["score2"] = line[1]
+
+			rank1, rank2, score1, score2 = [], [], [], []
+			for relation in relation_info:
+				rank1.append(relation_info[relation]["rank1"])
+				rank2.append(relation_info[relation]["rank2"])
+				score1.append(relation_info[relation]["score1"])
+				score2.append(relation_info[relation]["score2"])
+
+			tau, p_value = stats.kendalltau(rank1, rank2)
+			#print("Kendall's Tau:", tau, "p_value:", p_value)
+			kendalltau_sum += tau
+
+			corr, p_value = stats.spearmanr(score1, score2)
+			#print("Spearman's Rank:", corr, "p_value:", p_value)
+			spearmanr_sum += corr
+
+			corr, p_value = stats.pearsonr(score1, score2)
+			#print("Pearson's:", corr, "p_value:", p_value)
+			pearsonr_sum += corr
+		rankings.append(ranking1)
+
+	print("Configuration:", "Iterations:", iterations, "Doc Sample Size:", doc_sample_size, "Coarse:", coarse)
+	print("Ranking Compared:", pair_count)
+	print("Avg. Kendall's Tau:", kendalltau_sum / pair_count)
+	print("Avg. Spearman's Rank:", spearmanr_sum / pair_count)
+	print("Avg. Pearson's:", pearsonr_sum / pair_count)
+
+	return
+
+
 if __name__ == "__main__":
 	coarse_level_variation()
 	fine_grained_level_variation()
+	ranking_consistency(iterations=100, doc_sample_size=5, coarse=False)
+	ranking_consistency(iterations=100, doc_sample_size=5, coarse=True)
