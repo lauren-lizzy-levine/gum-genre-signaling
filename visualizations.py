@@ -59,6 +59,41 @@ def signal_proportion_by_genre(datafile, relation_group_name, outfile, relation_
 	return
 
 
+def signal_proportion_by_relation(datafile, genre_group_name, outfile, genre_list=None):
+	df = pd.read_csv(datafile, sep="\t")
+	if genre_list is not None:
+		# Filter to have only genres in genre_list
+		df = df[df['GENRE'].isin(genre_list)]
+	# Change oph label to dm
+	df['SIGNAL_TYPE'].replace('orp', 'dm', inplace=True)
+	# Get value counts
+	value_counts = df['COARSE_RELATION'].value_counts()
+	group_names = value_counts.index.tolist()
+	# Add constant value for each row to count the occurrences
+	df['Value'] = 1
+	# Calculate proportions
+	df['Total'] = df.groupby('COARSE_RELATION')['Value'].transform('sum')
+	df['Proportion'] = df['Value'] / df['Total']
+	# Pivot the DataFrame for plotting
+	pivot_df = df.pivot_table(index='COARSE_RELATION', columns='SIGNAL_TYPE', values='Proportion', aggfunc='sum')
+	# Update pivot rows (coarse_relation) with occurrence counts
+	new_row_names = {}
+	for relation in group_names:
+		new_row_names[relation] = relation + ' (' + str(value_counts[relation]) + ')'
+	pivot_df.rename(index=new_row_names, inplace=True)
+	# Plot
+	pivot_df.plot(kind='bar', stacked=True)
+	plt.xlabel('Coarse Relation')
+	plt.ylabel('Proportion')
+	plt.title('Proportion of Signal Type per Coarse Relation for GUM ' + genre_group_name)
+	plt.legend(title='Signal Type', bbox_to_anchor=(1, 1))
+	plt.xticks(rotation=60)
+	plt.savefig('visualizations/' + outfile, bbox_inches='tight')  # Save the plot as a PNG file with tight bounding box
+	#plt.show()
+
+	return
+
+
 def create_signal_proportion_genre_graphs():
 	datafile = "GUM_signals.tsv"
 	signal_proportion_by_genre(datafile, "All", "all_relations_genre_signal.png",
@@ -85,5 +120,12 @@ def create_signal_proportion_genre_graphs():
 	return
 
 
+def create_signal_proportion_relation_graphs():
+	datafile = "GUM_signals.tsv"
+	signal_proportion_by_relation(datafile, "All Genres", "all_genres_relation_signal.png", genre_list=None)
+	return
+
+
 if __name__ == "__main__":
 	create_signal_proportion_genre_graphs()
+	create_signal_proportion_relation_graphs()
