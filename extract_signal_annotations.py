@@ -8,6 +8,8 @@ def process_gum_signals():
     gum_file_list = glob.glob("../gum/dep/*.conllu")
     file_token_id = set()
     gum_signals = []
+    total_relations = 0
+    signaled_relations = 0
 
     for file in gum_file_list:
         file_name = file.split("/")[-1].split(".")[0]
@@ -23,6 +25,7 @@ def process_gum_signals():
                     token_discourse = token["misc"]["Discourse"]
                     discourse_relations = token_discourse.split(";")
                     for relation in discourse_relations:
+                        total_relations += 1
                         # extract relation
                         relation_split = relation.split(":")
                         if len(relation_split[-1]) == 1:
@@ -35,6 +38,7 @@ def process_gum_signals():
                         # extract signal information
                         signal_info = relation_split[-1]
                         signal_info_list = signal_info.split("+")
+                        signaled_relations += 1
                         for info in signal_info_list:
                             info_split = info.split("-")
                             signal_type = info_split[0]
@@ -46,6 +50,9 @@ def process_gum_signals():
     # write to file with pandas
     df = pd.DataFrame(gum_signals, columns =["DOC_NAME", "GENRE", "COARSE_RELATION", "RELATION", "SIGNAL_TYPE", "SIGNAL_SUBTYPE", "TOKEN_IDS"])
     df.to_csv("GUM_signals.tsv", index=False, sep="\t")
+    print(f"Total relations: {total_relations}",
+          f"Signaled relations: {signaled_relations}",
+          f"Proportion of signaled relations: {signaled_relations/total_relations:.2%}")
 
     return
 
